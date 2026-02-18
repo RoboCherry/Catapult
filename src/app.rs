@@ -1,6 +1,5 @@
-//use std::fs;
-use std::process::Command;
-use egui::{Key, RichText};
+use open::{self, that};
+use egui::{Key, RichText, ThemePreference, Vec2};
 use rfd::FileDialog;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -21,11 +20,6 @@ impl Default for ChauncerApp {
 impl ChauncerApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // This is also where you can customize the look and feel of egui using
-        // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
-
-        // Load previous app state (if any).
-        // Note that you must enable the `persistence` feature for this to work.
         if let Some(storage) = cc.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
         } else {
@@ -42,13 +36,13 @@ impl eframe::App for ChauncerApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        //set_styles(ctx);
+        set_stylings(ctx);
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
 
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("Quit").clicked(){
+                    if ui.button("Quit").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                     if ui.button("Fullscreen").clicked() {
@@ -59,9 +53,6 @@ impl eframe::App for ChauncerApp {
                     }
                 });
                     ui.add_space(16.0);
-
-
-                //egui::widgets::global_theme_preference_buttons(ui);
             });
         });
 
@@ -86,27 +77,75 @@ impl eframe::App for ChauncerApp {
                 if ! self.apps.contains(&exe_path.to_string()){
                     let _ = &mut self.apps.push(exe_path.to_string());
                 }
-                
-                
-            }
+            };
+            ui.add_space(16.0);
             
-            for i in &mut self.apps.iter(){
-                if ui.button(RichText::new(get_executable_name(i))).clicked(){
-                    let open_app = Command::new("cmd")
-                    .args(["/C", i])
-                    .output()
-                    .expect("Failed to open app");
-                let damn = String::from_utf8(open_app.stdout);
-                println!("{} : {}", damn.unwrap(), i)
-                };
-            }
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for i in &mut self.apps.iter(){
+                    
+                    let icon = egui::include_image!("../assets/icon.png");
+
+                    ui.add(
+                        egui::Image::new(icon)
+                            .max_size(Vec2 { x: 32.0, y: 32.0 })
+                    );
+                    ui.add_space(8.0);
+                    let text = RichText::new(get_executable_name(i)).size(16.0);
+                    if ui.button(text).clicked(){
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        open_app(i);
+                    };
+                    ui.add_space(8.0);
+                }
+            });
         });
     }
 }
+
+
+#[warn(unused)]
+pub struct OpenPopup {
+    name : String,
+    path : String
+}
+
+impl Default for OpenPopup {
+    fn default() -> Self {
+        Self {
+            name: "".to_string(),
+            path: "".to_string()
+        }
+    }
+}
+
+impl OpenPopup {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        Default::default()        
+    }
+}
+
+impl eframe::App for OpenPopup{
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let &mut mut name_text = &mut "yo";
+            egui::TextEdit::singleline(&mut name_text).show(ui)
+        });
+    }
+}
+
 
 fn get_executable_name(path : &String) -> String{
     let mut new_path = path.clone();
     let split_path : Vec<&str> = new_path.split("\\").collect();
     new_path = (*split_path.get(split_path.iter().count() - 1).unwrap()).to_string().replace(".exe", "");
     new_path
+}
+
+fn set_stylings(ctx: &egui::Context){
+    ctx.set_theme(ThemePreference::Dark);
+    //ctx.set_style();
+}
+
+fn open_app(name : &String){
+    let _ = that(name);
 }
