@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use file_icon_provider::get_file_icon;
 use image::{DynamicImage, RgbaImage};
 use open::{self, that};
-use egui::{Color32, ColorImage, FontFamily, FontId, Id, Key, RichText, TextStyle, TextureOptions, ThemePreference, Vec2, Window};
+use egui::{Color32, ColorImage, FontFamily, FontId, Id, Key, RichText, TextStyle, TextureHandle, TextureOptions, ThemePreference, Vec2, Window, load::SizedTexture};
 use rfd::FileDialog;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -12,7 +12,13 @@ pub struct ChauncerApp {
     apps : Vec<String>,
     apps_aliases : HashMap<String, String>,
 
+    #[serde(skip)]
+    app_texture_handles : HashMap<String, TextureHandle>,
+
     selected_app : String,
+
+    #[serde(skip)]
+    edit : bool,
 
     #[serde(skip)]
     is_app_selected : bool,
@@ -27,7 +33,9 @@ impl Default for ChauncerApp {
         Self {
             apps : Vec::new(),
             apps_aliases : HashMap::new(),
+            app_texture_handles : HashMap::new(),
             selected_app : "".to_string(),
+            edit : false,
             is_app_selected : false,
             current_app_name : "".to_string(),
             current_path : "".to_string()
@@ -80,9 +88,20 @@ impl eframe::App for ChauncerApp {
             
             if self.is_app_selected{
                 Window::new("Confirm App Name").show(ctx, |ui|{
-                    let color_icon = get_color_icon(self.current_path.clone(), [128,128]);
-                    let handle = ctx.load_texture("app_icon", color_icon.clone(), TextureOptions::LINEAR);
-                    let sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(64.0, 64.0));
+                    
+                    let sized_image : SizedTexture;
+
+                    if self.app_texture_handles.get(&self.current_path).is_none(){
+                        let color_icon = get_color_icon(self.current_path.clone(), [128,128]);
+                        let handle = ctx.load_texture("app_icon", color_icon.clone(), TextureOptions::LINEAR);
+                        sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(64.0, 64.0));
+                        self.app_texture_handles.insert(self.current_path.clone(), handle.clone());
+                    } else {
+                        let handle = self.app_texture_handles.get(&self.current_path).unwrap();
+                        sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(64.0, 64.0));
+                    }
+                    
+                    
                     
                     ui.add(egui::Image::from_texture(sized_image));
 
@@ -120,9 +139,6 @@ impl eframe::App for ChauncerApp {
 
             ui.add_space(32.0);
             
-            if ui.button("Delete Apps [-]").clicked(){
-                //self.apps = Vec::new()
-            }
             if ui.button("Add App [+]").clicked() {
 
                 let files = FileDialog::new()
@@ -142,9 +158,18 @@ impl eframe::App for ChauncerApp {
             
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for i in &mut self.apps.iter(){
-                    let color_icon = get_color_icon(i.clone(), [128,128]);
-                    let handle = ctx.load_texture("app_icon", color_icon.clone(), TextureOptions::LINEAR);
-                    let sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
+
+                    let sized_image : SizedTexture;
+
+                    if self.app_texture_handles.get(&i.to_string()).is_none(){
+                        let color_icon = get_color_icon(i.clone(), [128,128]);
+                        let handle = ctx.load_texture("app_icon", color_icon.clone(), TextureOptions::LINEAR);
+                        sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
+                        self.app_texture_handles.insert(i.clone(), handle.clone());
+                    } else {
+                        let handle = self.app_texture_handles.get(&i.to_string()).unwrap();
+                        sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
+                    }
                     let icon = egui::Image::from_texture(sized_image);
 
                     let app_name = self.apps_aliases.get(i);
@@ -178,9 +203,50 @@ impl eframe::App for ChauncerApp {
                     if ui.add(egui::Button::new(button_text)).clicked(){
                         open_app(&self.selected_app)
                     };
+                    ui.add_space(8.0);
+                    if ui.add(egui::Button::new("Edit App")).clicked(){
+                        self.edit = true;
+                    }
                 } else {
                     ui.label("Select an App");
                 };
+                if self.edit{
+                    Window::new("Edit App").show(ctx, |ui|{
+
+                        let sized_image : SizedTexture;
+
+                        if self.app_texture_handles.get(&self.selected_app).is_none(){
+                            let color_icon = get_color_icon(self.selected_app.clone(), [128,128]);
+                            let handle = ctx.load_texture("app_icon", color_icon.clone(), TextureOptions::LINEAR);
+                            sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(64.0, 64.0));
+                            self.app_texture_handles.insert(self.selected_app.clone(), handle.clone());
+                        } else {
+                            let handle = self.app_texture_handles.get(&self.selected_app).unwrap();
+                            sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(64.0, 64.0));
+                        }
+                        
+                        ui.add(egui::Image::from_texture(sized_image));
+
+                        if self.apps_aliases.get(&self.selected_app).is_some(){
+                            self.current_app_name = self.apps_aliases.get(&self.selected_app).unwrap().to_string();
+                        }
+                        if self.current_app_name == get_executable_name(&self.selected_app){
+                            self.current_app_name = "".to_string()
+                        }
+
+                        ui.add(egui::TextEdit::singleline(&mut self.current_app_name).hint_text(get_executable_name(&self.selected_app)));
+
+                        if self.current_app_name == "".to_string(){
+                            self.apps_aliases.insert(self.selected_app.clone(), get_executable_name(&self.selected_app));
+                        } else {
+                            self.apps_aliases.insert(self.selected_app.clone(), self.current_app_name.clone());
+                        }
+
+                        ui.label(RichText::new(format!("Executable Path: {}",&self.selected_app)));
+                    }); 
+                }
+                
+            
             });
     }
 }
@@ -204,9 +270,10 @@ fn set_stylings(ctx: &egui::Context){
         ].into();
     
     style.visuals.panel_fill = Color32::from_hex("#0D0D0E").unwrap();
-
+    style.visuals.window_fill = Color32::from_hex("#0D0D0E").unwrap();
+    
     style.visuals.weak_text_color = Some(Color32::from_hex("#323749").unwrap());
-    //style.visuals. = Some(Color32::from_hex("#6a759c").unwrap());
+    
     
     style.visuals.widgets.inactive.weak_bg_fill = Color32::from_hex("#111112").unwrap();
     style.visuals.widgets.hovered.weak_bg_fill = Color32::from_hex("#141519").unwrap();
@@ -235,8 +302,7 @@ fn get_color_icon(exe_path : String, size : [usize; 2]) -> ColorImage{
     let app_icon = get_file_icon(exe_path.clone(), 128).expect("Failed to get icon");
     let app_icon_image = RgbaImage::from_raw(app_icon.width, app_icon.height, app_icon.pixels)
         .map(DynamicImage::ImageRgba8)
-        .expect("Failed to convert image"
-    );
+        .expect("Failed to convert image");
                     
     let color_icon = egui::ColorImage::from_rgba_premultiplied(size, app_icon_image.as_bytes());
     color_icon
