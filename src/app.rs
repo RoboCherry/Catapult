@@ -112,7 +112,7 @@ impl eframe::App for ChauncerApp {
                         self.current_app_name = "".to_string()
                     }
 
-                    ui.add(egui::TextEdit::singleline(&mut self.current_app_name).hint_text(get_executable_name(&self.current_path)));
+                    ui.add(egui::TextEdit::singleline(&mut self.current_app_name).hint_text(get_executable_name(&self.current_path)).min_size(Vec2 { x: 512.0, y: 0.0 }));
 
                     if self.current_app_name == "".to_string(){
                         self.apps_aliases.insert(self.current_path.clone(), get_executable_name(&self.current_path));
@@ -125,10 +125,21 @@ impl eframe::App for ChauncerApp {
                         self.current_app_name = "".to_string();
                         if ! self.apps.contains(&self.current_path){
                             let _ = &mut self.apps.push(self.current_path.clone());
+                            self.apps.sort_by(|a, b| {
+                                let a_name = self.apps_aliases.get(a).unwrap().to_lowercase();
+                                let b_name = self.apps_aliases.get(b).unwrap().to_lowercase();
+                                a_name.cmp(&b_name)
+                            });
+                        } else {
+                            self.apps.sort_by(|a, b| {
+                                let a_name = self.apps_aliases.get(a).unwrap().to_lowercase();
+                                let b_name = self.apps_aliases.get(b).unwrap().to_lowercase();
+                                a_name.cmp(&b_name)
+                            });
                         }
                         self.is_app_selected = false
                     };
-                    if ui.button("Cancel").clicked(){
+                    if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)){
                         self.is_app_selected = false
                     };
                 }); 
@@ -138,11 +149,15 @@ impl eframe::App for ChauncerApp {
             ui.heading("Applications");
 
             ui.add_space(32.0);
+
+            ui.label(format!("Count: {}", self.apps.len()));
+
+            ui.add_space(32.0);
             
             if ui.button("Add App [+]").clicked() {
 
                 let files = FileDialog::new()
-                .add_filter("Executable", &["exe"])
+                //.add_filter("Executable", &["exe"])
                 .set_directory("C:/")
                 .pick_file();
                 
@@ -192,7 +207,7 @@ impl eframe::App for ChauncerApp {
 
         egui::CentralPanel::default()
             .show(ctx, |ui|{
-                if self.selected_app != "".to_string() {
+                if self.selected_app != "".to_string() && self.apps.contains(&self.selected_app){
                     let color_icon = get_color_icon(self.selected_app.clone(), [128,128]);
                     let handle = ctx.load_texture("app_icon", color_icon.clone(), TextureOptions::LINEAR);
                     let sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(512.0, 512.0));
@@ -201,7 +216,8 @@ impl eframe::App for ChauncerApp {
                     ui.add(egui::Label::new(app_name));
                     let button_text = RichText::new("LAUNCH >").size(64.0);
                     if ui.add(egui::Button::new(button_text)).clicked(){
-                        open_app(&self.selected_app)
+                        open_app(&self.selected_app);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                     };
                     ui.add_space(8.0);
                     if ui.add(egui::Button::new("Edit App")).clicked(){
@@ -234,7 +250,7 @@ impl eframe::App for ChauncerApp {
                             self.current_app_name = "".to_string()
                         }
 
-                        ui.add(egui::TextEdit::singleline(&mut self.current_app_name).hint_text(get_executable_name(&self.selected_app)));
+                        ui.add(egui::TextEdit::singleline(&mut self.current_app_name).hint_text(get_executable_name(&self.selected_app)).min_size(Vec2 { x: 512.0, y: 0.0 }));
 
                         if self.current_app_name == "".to_string(){
                             self.apps_aliases.insert(self.selected_app.clone(), get_executable_name(&self.selected_app));
@@ -243,6 +259,17 @@ impl eframe::App for ChauncerApp {
                         }
 
                         ui.label(RichText::new(format!("Executable Path: {}",&self.selected_app)));
+                        
+                        if ui.button("Remove").clicked(){
+                            self.apps.retain(|path| path != &self.selected_app);
+                            if self.apps.len() > 0 {
+                                self.selected_app = self.apps.get(0).unwrap().to_string();
+                            }
+                        }
+
+                        if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)){
+                            self.edit = false
+                    };
                     }); 
                 }
                 
