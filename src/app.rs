@@ -16,6 +16,7 @@ pub struct CatapultApp {
     last_instant : Instant,
 
     app_folders : HashMap<String,Vec<String>>,
+    app_folder_names : Vec<String>,
     apps : Vec<String>,
     selected_app : String,
     apps_aliases : HashMap<String, String>,
@@ -53,6 +54,7 @@ impl Default for CatapultApp {
             delta_time : Duration::new(0, 0),
             last_instant : Instant::now(),
             app_folders : HashMap::new(),
+            app_folder_names : Vec::new(),
             apps : Vec::new(),
             apps_aliases : HashMap::new(),
             app_texture_handles : HashMap::new(),
@@ -90,8 +92,7 @@ impl eframe::App for CatapultApp {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         set_stylings(ctx);
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            // The top panel is often a good place for a menu bar:
+        egui::TopBottomPanel::top("Top Panel").show(ctx, |ui| {
 
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -111,7 +112,7 @@ impl eframe::App for CatapultApp {
 
         egui::SidePanel::new(egui::panel::Side::Left, Id::new("Left"))
         .min_width(512.0)
-            .show(ctx, |ui| {
+        .show(ctx, |ui| {
             
             if self.is_app_selected{
                 Window::new("Confirm App Name").show(ctx, |ui|{
@@ -179,11 +180,16 @@ impl eframe::App for CatapultApp {
                 Window::new("Create Folder").show(ctx, |ui|{
                     ui.add(egui::TextEdit::singleline(&mut self.current_folder_name).hint_text("New Group").min_size(Vec2 { x: 512.0, y: 0.0 }));
                     if ui.button("Add Group").clicked() || ui.input(|i| i.key_pressed(Key::Enter)){
-                        self.app_folders.insert(self.current_folder_name.clone(), Vec::new());
+                        let new_folder_content : Vec<String> = vec![self.selected_app.clone()];
+                        self.app_folders.insert(self.current_folder_name.clone(), new_folder_content);
+                        if !self.app_folder_names.contains(&self.current_folder_name){
+                            self.app_folder_names.push(self.current_folder_name.clone());
+                        }
                         self.current_folder_name = "".to_string();
                         self.is_folder_created = false;
                     }
                     if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)){
+                        self.current_folder_name = "".to_string();
                         self.is_folder_created = false
                     };
                 });
@@ -212,49 +218,16 @@ impl eframe::App for CatapultApp {
                     self.is_app_selected = true;
                 }
             };
-            if ui.button("Add Group [+]").clicked() {
-                self.is_folder_created = true;
-            }
             ui.add_space(16.0);
             
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.menu_button("ALL Apps", |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        for i in &mut self.apps.iter(){
+                    egui::ScrollArea::vertical()
+                    .max_width(480.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        for app in &mut self.apps.iter(){
 
-                        let sized_image : SizedTexture;
-
-                        if self.app_texture_handles.get(&i.to_string()).is_none(){
-                            let color_icon = get_color_icon(i.clone(), [128,128]);
-                            let handle = ctx.load_texture("app_icon", color_icon.clone(), TextureOptions::LINEAR);
-                            sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
-                            self.app_texture_handles.insert(i.clone(), handle.clone());
-                        } else {
-                            let handle = self.app_texture_handles.get(&i.to_string()).unwrap();
-                            sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
-                        }
-                        let icon = egui::Image::from_texture(sized_image);
-
-                        let app_name = self.apps_aliases.get(i);
-                        let text : RichText;
-                        if app_name.is_some(){
-                            text = RichText::new(app_name.unwrap().to_string()).size(24.0);
-                        } else {
-                            text = RichText::new(i).size(24.0);
-                        }
-
-                        if ui.add(egui::Button::image_and_text(icon.clone(), text.clone()).min_size(Vec2 { x: 32.0, y: 32.0 })).clicked(){
-                            self.selected_app = i.to_string();
-                        }
-                        ui.add_space(8.0);
-                    }
-                });   
-            });
-            ui.add_space(24.0);
-            for folder in self.app_folders.keys(){
-                ui.menu_button(folder, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        for app in self.app_folders.get(folder).unwrap(){
                             let sized_image : SizedTexture;
 
                             if self.app_texture_handles.get(&app.to_string()).is_none(){
@@ -263,7 +236,7 @@ impl eframe::App for CatapultApp {
                                 sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
                                 self.app_texture_handles.insert(app.clone(), handle.clone());
                             } else {
-                                 let handle = self.app_texture_handles.get(&app.to_string()).unwrap();
+                                let handle = self.app_texture_handles.get(&app.to_string()).unwrap();
                                 sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
                             }
                             let icon = egui::Image::from_texture(sized_image);
@@ -281,11 +254,70 @@ impl eframe::App for CatapultApp {
                             }
                             ui.add_space(8.0);
                         }
-                    });
+                    });   
                 });
-            }
+                ui.add_space(24.0);
+                for folder in self.app_folder_names.iter(){
+
+                    let default_max_height = 32.0 * 8.0;
+
+                    /*let max_height = if self.app_folders.get(folder).unwrap().len() > 9{
+                        default_max_height
+                    } else {
+                        (self.app_folders.get(folder).unwrap().len() as f32) * 32.0 + 32.0
+                    };*/
+
+                    let max_height = (self.app_folders.get(folder).unwrap().len() as f32) * 48.0 + 48.0;
+
+                    ui.menu_button(folder, |ui| {
+                        egui::ScrollArea::vertical()
+                        .max_width(480.0)
+                        .max_height(max_height)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            if self.app_folders.get(folder).unwrap().len() == 0{
+                                ui.label("No apps in this group");
+                            }
+                            for app in self.app_folders.clone().get(folder).unwrap(){
+                                let sized_image : SizedTexture;
+
+                                if self.app_texture_handles.get(&app.to_string()).is_none(){
+                                    let color_icon = get_color_icon(app.clone(), [128,128]);
+                                    let handle = ctx.load_texture("app_icon", color_icon.clone(), TextureOptions::LINEAR);
+                                    sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
+                                    self.app_texture_handles.insert(app.clone(), handle.clone());
+                                } else {
+                                    let handle = self.app_texture_handles.get(&app.to_string()).unwrap();
+                                    sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
+                                }
+                                let icon = egui::Image::from_texture(sized_image);
+
+                                let app_name = self.apps_aliases.get(app);
+                                let text : RichText;
+                                if app_name.is_some(){
+                                    text = RichText::new(app_name.unwrap().to_string()).size(24.0);
+                                } else {
+                                    text = RichText::new(app).size(24.0);
+                                }
+
+                                ui.horizontal(|ui|{
+                                    if ui.add(egui::Button::image_and_text(icon.clone(), text.clone()).min_size(Vec2 { x: 32.0, y: 32.0 })).clicked(){
+                                        self.selected_app = app.to_string();
+                                    }
+                                    if ui.add(egui::Button::new("Remove").min_size(Vec2 { x: 32.0, y: 32.0 })).clicked(){
+                                        let folder_vec = self.app_folders.get_mut(folder).unwrap();
+                                        folder_vec.retain(|a| a != app);
+                                    }
+                                });
+
+                                
+                                ui.add_space(8.0);
+                            }
+                        });
+                    });
+                }
+            });
         });
-    });
 
         egui::CentralPanel::default()
             .show(ctx, |ui|{
@@ -309,13 +341,17 @@ impl eframe::App for CatapultApp {
                         self.edit = true;
                     }
                     ui.menu_button("Add to Group", |ui|{
-                        let folder_names: Vec<String> = self.app_folders.keys().cloned().collect();
+                        let folder_names: Vec<String> = self.app_folder_names.clone();
+                        if ui.button("New Group [+]").clicked() {
+                            self.is_folder_created = true;
+                        }
                         for folder in folder_names{
                             if ui.button(&folder).clicked(){
                                 let folder_vec = self.app_folders.get_mut(&folder).unwrap();
                                 if !folder_vec.contains(&self.selected_app.clone()){
                                     folder_vec.push(self.selected_app.clone());
                                 }
+                                ctx.request_repaint();
                             }
                         }
                     });
