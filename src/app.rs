@@ -46,6 +46,7 @@ pub struct CatapultApp {
     running_apps : HashMap<String,usize>, //Stores the PID of all running apps, so we can track it and update play time
     #[serde(skip)]
     app_to_remove : String,
+
 }
 
 impl Default for CatapultApp {
@@ -179,7 +180,7 @@ impl eframe::App for CatapultApp {
             if self.is_folder_created{
                 Window::new("Create Folder").show(ctx, |ui|{
                     ui.add(egui::TextEdit::singleline(&mut self.current_folder_name).hint_text("New Group").min_size(Vec2 { x: 512.0, y: 0.0 }));
-                    if ui.button("Add Group").clicked() || ui.input(|i| i.key_pressed(Key::Enter)){
+                    if (ui.button("Add Group").clicked() || ui.input(|i| i.key_pressed(Key::Enter))) && self.current_folder_name != "".to_string(){
                         let new_folder_content : Vec<String> = vec![self.selected_app.clone()];
                         self.app_folders.insert(self.current_folder_name.clone(), new_folder_content);
                         if !self.app_folder_names.contains(&self.current_folder_name){
@@ -224,6 +225,7 @@ impl eframe::App for CatapultApp {
                 ui.menu_button("ALL Apps", |ui| {
                     egui::ScrollArea::vertical()
                     .max_width(480.0)
+                    .max_height(240.0)
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
                         for app in &mut self.apps.iter(){
@@ -255,65 +257,60 @@ impl eframe::App for CatapultApp {
                             ui.add_space(8.0);
                         }
                     });   
+                    ui.label(format!("Games:{}", self.apps.len()));
                 });
                 ui.add_space(24.0);
                 for folder in self.app_folder_names.iter(){
 
-                    let default_max_height = 32.0 * 8.0;
-
-                    /*let max_height = if self.app_folders.get(folder).unwrap().len() > 9{
-                        default_max_height
-                    } else {
-                        (self.app_folders.get(folder).unwrap().len() as f32) * 32.0 + 32.0
-                    };*/
-
-                    let max_height = (self.app_folders.get(folder).unwrap().len() as f32) * 48.0 + 48.0;
-
                     ui.menu_button(folder, |ui| {
+                        //self.auto_shrink = false;
                         egui::ScrollArea::vertical()
                         .max_width(480.0)
-                        .max_height(max_height)
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
+                        .max_height(240.0)
+                        .auto_shrink([false, true])
+                        .show(ui,|ui| {
                             if self.app_folders.get(folder).unwrap().len() == 0{
                                 ui.label("No apps in this group");
-                            }
-                            for app in self.app_folders.clone().get(folder).unwrap(){
-                                let sized_image : SizedTexture;
+                            } else {
+                                for app in self.app_folders.clone().get(folder).unwrap(){
+                                    let sized_image : SizedTexture;
 
-                                if self.app_texture_handles.get(&app.to_string()).is_none(){
-                                    let color_icon = get_color_icon(app.clone(), [128,128]);
-                                    let handle = ctx.load_texture("app_icon", color_icon.clone(), TextureOptions::LINEAR);
-                                    sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
-                                    self.app_texture_handles.insert(app.clone(), handle.clone());
-                                } else {
-                                    let handle = self.app_texture_handles.get(&app.to_string()).unwrap();
-                                    sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
-                                }
-                                let icon = egui::Image::from_texture(sized_image);
-
-                                let app_name = self.apps_aliases.get(app);
-                                let text : RichText;
-                                if app_name.is_some(){
-                                    text = RichText::new(app_name.unwrap().to_string()).size(24.0);
-                                } else {
-                                    text = RichText::new(app).size(24.0);
-                                }
-
-                                ui.horizontal(|ui|{
-                                    if ui.add(egui::Button::image_and_text(icon.clone(), text.clone()).min_size(Vec2 { x: 32.0, y: 32.0 })).clicked(){
-                                        self.selected_app = app.to_string();
+                                    if self.app_texture_handles.get(&app.to_string()).is_none(){
+                                        let color_icon = get_color_icon(app.clone(), [128,128]);
+                                        let handle = ctx.load_texture("app_icon", color_icon.clone(), TextureOptions::LINEAR);
+                                        sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
+                                        self.app_texture_handles.insert(app.clone(), handle.clone());
+                                    } else {
+                                        let handle = self.app_texture_handles.get(&app.to_string()).unwrap();
+                                        sized_image = egui::load::SizedTexture::new(handle.id(), egui::vec2(48.0, 48.0));
                                     }
-                                    if ui.add(egui::Button::new("Remove").min_size(Vec2 { x: 32.0, y: 32.0 })).clicked(){
-                                        let folder_vec = self.app_folders.get_mut(folder).unwrap();
-                                        folder_vec.retain(|a| a != app);
-                                    }
-                                });
+                                    let icon = egui::Image::from_texture(sized_image);
 
-                                
-                                ui.add_space(8.0);
+                                    let app_name = self.apps_aliases.get(app);
+                                    let text : RichText;
+                                    if app_name.is_some(){
+                                        text = RichText::new(app_name.unwrap().to_string()).size(24.0);
+                                    } else {
+                                        text = RichText::new(app).size(24.0);
+                                    }
+
+                                    ui.horizontal(|ui|{
+                                        if ui.add(egui::Button::image_and_text(icon.clone(), text.clone()).min_size(Vec2 { x: 32.0, y: 32.0 })).clicked(){
+                                            self.selected_app = app.to_string();
+                                        }
+                                        if ui.add(egui::Button::new("Remove").min_size(Vec2 { x: 32.0, y: 32.0 })).clicked(){
+                                            let folder_vec = self.app_folders.get_mut(folder).unwrap();
+                                            folder_vec.retain(|a| a != app);
+                                        }
+                                    });
+
+                                    
+                                    ui.add_space(8.0);
+                                }
                             }
                         });
+                        
+                        ui.label(format!("Games:{}", self.app_folders.get(folder).unwrap().len()));
                     });
                 }
             });

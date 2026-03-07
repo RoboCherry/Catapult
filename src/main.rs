@@ -1,6 +1,5 @@
 #![windows_subsystem = "windows"]
 mod app;
-
 fn main() -> eframe::Result {
 
     let native_options = eframe::NativeOptions {
