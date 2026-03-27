@@ -493,7 +493,8 @@ fn track_app(pid : usize, app : &CatapultApp) -> Option<&Process>{ //Given a PID
 }
 
 fn get_color_icon(exe_path : String, size : [usize; 2]) -> ColorImage{ //Loads the file icon for the given executable path and converts it to an egui ColorImage, which can then be loaded as a texture and displayed in the UI
-    let app_icon = get_file_icon(exe_path.clone(), 128).expect("Failed to get icon");
+    let app_icon = get_file_icon(exe_path.clone(), size[0] as u16).expect("Failed to get icon");
+    println!("{}{:?}",exe_path, app_icon.pixels);
     let app_icon_image = RgbaImage::from_raw(app_icon.width, app_icon.height, app_icon.pixels)
         .map(DynamicImage::ImageRgba8)
         .expect("Failed to convert image");
