@@ -1,7 +1,7 @@
 use std::{collections::HashMap, process::Command, time::{Duration, Instant}};
 use file_icon_provider::get_file_icon;
 use image::{DynamicImage, RgbaImage};
-use egui::{Color32, ColorImage, FontFamily, FontId, Id, Key, RichText, TextStyle, TextureHandle, TextureOptions, ThemePreference, Vec2, Window, load::SizedTexture};
+use egui::{Color32, ColorImage, FontFamily, FontId, Id, Key, Modifiers, RichText, TextStyle, TextureHandle, TextureOptions, ThemePreference, Vec2, Window, load::SizedTexture};
 use rfd::FileDialog;
 use sysinfo::{Pid, Process, ProcessRefreshKind, RefreshKind, System};
 
@@ -22,6 +22,8 @@ pub struct CatapultApp {
     apps_aliases : HashMap<String, String>, //A hashmap of executable paths to their corresponding app names, used to allow the user to specify a custom name for each app instead of just using the executable name. If an app doesn't have a custom name, the executable name will be used as a default (see get_executable_name function)
     app_play_time : HashMap<String, u64>, //A hashmap of executable paths to the total time (in milliseconds)
 
+    keybinds : HashMap<String, (Key, Modifiers)>,
+
     #[serde(skip)]
     app_texture_handles : HashMap<String, TextureHandle>, //Cache the texture handles for the app icons, so we don't have to reload them every frame (big performance increase trust me, i wish i could serialize texture handles but alas)
 
@@ -33,7 +35,7 @@ pub struct CatapultApp {
     #[serde(skip)]
     is_folder_created : bool, //Whether the "Create Folder" window should be open for the currently selected app
     #[serde(skip)]
-    current_app_name : String,
+    current_app_name : String, //When adding a new app or editing an existing one, this stores the current value of the app name text input, so we can update it in real time as the user types and then save it when they click "Add App" or "Save Changes"
     #[serde(skip)]
     current_path : String,
     #[serde(skip)]
@@ -60,6 +62,16 @@ impl Default for CatapultApp {
             apps_aliases : HashMap::new(),
             app_texture_handles : HashMap::new(),
             app_play_time : HashMap::new(),
+            keybinds : {
+                let mut map = HashMap::new();
+                map.insert("confirm".to_string(), (Key::Enter, Modifiers::default()));
+                map.insert("cancel".to_string(), (Key::Escape, Modifiers::default()));
+                map.insert("launch".to_string(), (Key::L, Modifiers::default()));
+                map.insert("find".to_string(), (Key::F, Modifiers{ctrl: true, ..Modifiers::default()}));
+                map
+            },
+
+            //All fields skipped in serialization
             selected_app : "".to_string(),
             is_editing_app : false,
             is_app_selected : false,
@@ -96,7 +108,7 @@ impl eframe::App for CatapultApp {
         egui::TopBottomPanel::top("Top Panel").show(ctx, |ui| {
 
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("File", |ui| {
+                ui.menu_button("Menu", |ui| {
                     if ui.button("Quit").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -333,7 +345,7 @@ impl eframe::App for CatapultApp {
                     let app_name = RichText::new(self.apps_aliases.get(&self.selected_app).unwrap()).size(64.0);
                     ui.add(egui::Label::new(app_name));
                     let button_text = RichText::new("LAUNCH >").size(64.0);
-                    if ui.add(egui::Button::new(button_text)).clicked(){
+                    if ui.add(egui::Button::new(button_text)).clicked() || keybind_pressed("launch".to_string(), ui, &self.keybinds.clone()){
                         let pid = open_app(&self.selected_app);
                         self.sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
                         track_app(pid, &self);
@@ -405,7 +417,7 @@ impl eframe::App for CatapultApp {
                             }
                         }
 
-                        if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)){
+                        if ui.button("Rename App").clicked() || ui.input(|i| i.key_pressed(Key::Enter)) || ui.input(|i| i.key_pressed(Key::Escape)){
                             self.is_editing_app = false
                     };
                 }); 
@@ -508,4 +520,12 @@ fn time_from_millis(millis : u64) -> String{
     let minutes = seconds / 60;
     let hours = minutes / 60;
     format!("{} hours, {} minutes, {} seconds", hours, minutes % 60, seconds % 60)
+}
+
+fn keybind_pressed(bind : String, ui : &egui::Ui, keybinds : &HashMap<String, (Key, Modifiers)>) -> bool{
+    if keybinds.get(&bind).is_none(){
+        return false;
+    }
+    let (key, modifiers) = keybinds.get(&bind).unwrap();
+    ui.input(|i| i.key_pressed(*key) && i.modifiers.matches_exact(*modifiers))
 }
