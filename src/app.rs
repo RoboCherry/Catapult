@@ -10,30 +10,27 @@ use sysinfo::{Pid, Process, ProcessRefreshKind, RefreshKind, System};
 #[serde(default)]
 pub struct CatapultApp {
 
-    #[serde(skip)]
-    delta_time : Duration, //The time since last frame
-    #[serde(skip)]
-    last_instant : Instant, //The time of the last frame, used to calculate delta_time
-
     app_folders : HashMap<String,Vec<String>>, //A hashmap of folder names to the apps in those folders, used to organize apps into groups
     app_folder_names : Vec<String>, //A vector of folder names, used to maintain the order of the folders in the UI (since hashmaps don't maintain order)
     apps : Vec<String>, //A vector of executable paths for all the apps the user has added, used to display the apps in the "All Apps" default group
     selected_app : String,
     apps_aliases : HashMap<String, String>, //A hashmap of executable paths to their corresponding app names, used to allow the user to specify a custom name for each app instead of just using the executable name. If an app doesn't have a custom name, the executable name will be used as a default (see get_executable_name function)
-    app_play_time : HashMap<String, u64>, //A hashmap of executable paths to the total time (in milliseconds)
+    app_play_time : HashMap<String, u64>, //A hashmap of executable paths to their total play time (in milliseconds)
 
-    keybinds : HashMap<String, (Key, Modifiers)>,
+    keybinds : HashMap<String, (Option<Key>, Modifiers)>, //A hashmap of keybind names to their corresponding key and modifiers
 
-    #[serde(skip)]
-    app_texture_handles : HashMap<String, TextureHandle>, //Cache the texture handles for the app icons, so we don't have to reload them every frame (big performance increase trust me, i wish i could serialize texture handles but alas)
 
     #[serde(skip)]
-    is_editing_app : bool, //Whether the "Edit App" window should be open for the currently selected app
+    delta_time : Duration, //The time since last frame
+    #[serde(skip)]
+    last_instant : Instant, //The time of the last frame, used to calculate delta_time
+
 
     #[serde(skip)]
-    is_app_selected : bool, //Whether the "Add App" window should be open for the currently selected app
+    app_texture_handles : HashMap<String, TextureHandle>, //Cache the texture handles for the app icons, so we don't have to reload them every frame (big performance increase trust me)
+
     #[serde(skip)]
-    is_folder_created : bool, //Whether the "Create Folder" window should be open for the currently selected app
+    open_windows : HashMap<String, bool>, //A hashmap determining which windows should be opened
     #[serde(skip)]
     current_app_name : String, //When adding a new app or editing an existing one, this stores the current value of the app name text input, so we can update it in real time as the user types and then save it when they click "Add App" or "Save Changes"
     #[serde(skip)]
@@ -54,28 +51,35 @@ pub struct CatapultApp {
 impl Default for CatapultApp {
     fn default() -> Self {
         Self {
-            delta_time : Duration::new(0, 0),
-            last_instant : Instant::now(),
             app_folders : HashMap::new(),
             app_folder_names : Vec::new(),
             apps : Vec::new(),
             apps_aliases : HashMap::new(),
-            app_texture_handles : HashMap::new(),
             app_play_time : HashMap::new(),
             keybinds : {
                 let mut map = HashMap::new();
-                map.insert("confirm".to_string(), (Key::Enter, Modifiers::default()));
-                map.insert("cancel".to_string(), (Key::Escape, Modifiers::default()));
-                map.insert("launch".to_string(), (Key::L, Modifiers::default()));
-                map.insert("find".to_string(), (Key::F, Modifiers{ctrl: true, ..Modifiers::default()}));
+                map.insert("confirm".to_string(), (Some(Key::Enter), Modifiers::default()));
+                map.insert("cancel".to_string(), (Some(Key::Escape), Modifiers::default()));
+                map.insert("launch".to_string(), (Some(Key::L), Modifiers{ctrl: true, ..Modifiers::default()}));
+                map.insert("binds_menu".to_string(), (Some(Key::K), Modifiers{ctrl: true, ..Modifiers::default()}));
+                map.insert("find".to_string(), (Some(Key::F), Modifiers{ctrl: true, ..Modifiers::default()}));
                 map
             },
 
             //All fields skipped in serialization
+            delta_time : Duration::new(0, 0),
+            last_instant : Instant::now(),
+            app_texture_handles : HashMap::new(),
             selected_app : "".to_string(),
-            is_editing_app : false,
-            is_app_selected : false,
-            is_folder_created : false,
+            open_windows : {
+                let mut map = HashMap::new();
+                map.insert("add_app".to_string(), false);
+                map.insert("edit_app".to_string(), false);
+                map.insert("create_folder".to_string(), false);
+                map.insert("keybinds_menu".to_string(), false);
+                map.insert("find".to_string(), false);
+                map
+            },
             current_app_name : "".to_string(),
             current_path : "".to_string(),
             current_folder_name : "".to_string(),
@@ -127,7 +131,7 @@ impl eframe::App for CatapultApp {
         .min_width(512.0)
         .show(ctx, |ui| {
             
-            if self.is_app_selected{
+            if *self.open_windows.get("add_app").unwrap_or(&false){
                 Window::new("Confirm App Name").show(ctx, |ui|{
                     
                     let sized_image : SizedTexture;
@@ -162,7 +166,7 @@ impl eframe::App for CatapultApp {
                     }
 
                     ui.label(RichText::new(format!("Executable Path: {}",&self.current_path)));
-                    if ui.button("Add App").clicked() || ui.input(|i| i.key_pressed(Key::Enter)){
+                    if ui.button("Add App").clicked() || keybind_pressed("confirm".to_string(), ui, &self.keybinds.clone()){
                         self.current_app_name = "".to_string();
                         if ! self.apps.contains(&self.current_path){
                             let _ = &mut self.apps.push(self.current_path.clone());
@@ -182,28 +186,28 @@ impl eframe::App for CatapultApp {
                                 a_name.cmp(&b_name)
                             });
                         }
-                        self.is_app_selected = false
+                        self.open_windows.insert("add_app".to_string(), false);
                     };
-                    if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)){
-                        self.is_app_selected = false
+                    if ui.button("Cancel").clicked() || keybind_pressed("cancel".to_string(), ui, &self.keybinds.clone()){
+                        self.open_windows.insert("add_app".to_string(), false);
                     };
                 }); 
             }
-            if self.is_folder_created{
+            if *self.open_windows.get("create_folder").unwrap_or(&false){
                 Window::new("Create Folder").show(ctx, |ui|{
                     ui.add(egui::TextEdit::singleline(&mut self.current_folder_name).hint_text("New Group").min_size(Vec2 { x: 512.0, y: 0.0 }));
-                    if (ui.button("Add Group").clicked() || ui.input(|i| i.key_pressed(Key::Enter))) && self.current_folder_name != "".to_string(){
+                    if (ui.button("Add Group").clicked() || keybind_pressed("confirm".to_string(), ui, &self.keybinds.clone())) && self.current_folder_name != "".to_string(){
                         let new_folder_content : Vec<String> = vec![self.selected_app.clone()];
                         self.app_folders.insert(self.current_folder_name.clone(), new_folder_content);
                         if !self.app_folder_names.contains(&self.current_folder_name){
                             self.app_folder_names.push(self.current_folder_name.clone());
                         }
                         self.current_folder_name = "".to_string();
-                        self.is_folder_created = false;
+                        self.open_windows.insert("create_folder".to_string(), false);
                     }
-                    if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)){
+                    if ui.button("Cancel").clicked() || keybind_pressed("cancel".to_string(), ui, &self.keybinds.clone()){
                         self.current_folder_name = "".to_string();
-                        self.is_folder_created = false
+                        self.open_windows.insert("create_folder".to_string(), false);
                     };
                 });
             }
@@ -228,7 +232,7 @@ impl eframe::App for CatapultApp {
                     let path = picked_path.as_path();
                     let exe_path = path.to_str().unwrap();
                     self.current_path = exe_path.to_string();
-                    self.is_app_selected = true;
+                    self.open_windows.insert("add_app".to_string(), true);
                 }
             };
             ui.add_space(16.0);
@@ -354,12 +358,12 @@ impl eframe::App for CatapultApp {
                     };
                     ui.add_space(8.0);
                     if ui.add(egui::Button::new("Edit App")).clicked(){
-                        self.is_editing_app = true;
+                        self.open_windows.insert("edit_app".to_string(), true);
                     }
                     ui.menu_button("Add to Group", |ui|{
                         let folder_names: Vec<String> = self.app_folder_names.clone();
                         if ui.button("New Group [+]").clicked() {
-                            self.is_folder_created = true;
+                            self.open_windows.insert("create_folder".to_string(), true);
                         }
                         for folder in folder_names{
                             if ui.button(&folder).clicked(){
@@ -376,7 +380,7 @@ impl eframe::App for CatapultApp {
                 } else {
                     ui.label("Select an App");
                 };
-                if self.is_editing_app{
+                if *self.open_windows.get("edit_app").unwrap_or(&false){
                     Window::new("Edit App").show(ctx, |ui|{
 
                         let sized_image : SizedTexture;
@@ -417,14 +421,27 @@ impl eframe::App for CatapultApp {
                             }
                         }
 
-                        if ui.button("Rename App").clicked() || ui.input(|i| i.key_pressed(Key::Enter)) || ui.input(|i| i.key_pressed(Key::Escape)){
-                            self.is_editing_app = false
-                    };
-                }); 
-            }
-
-            ctx.request_repaint();        
-        });
+                        if ui.button("Rename App").clicked() || keybind_pressed("confirm".to_string(), ui, &self.keybinds.clone()) || keybind_pressed("cancel".to_string(), ui, &self.keybinds.clone()){
+                            self.open_windows.insert("edit_app".to_string(), false);
+                        };
+                    }); 
+                }
+                if keybind_pressed("binds_menu".to_string(), ui, &self.keybinds.clone()){
+                    self.open_windows.insert("keybinds_menu".to_string(), true);
+                } else {
+                    self.open_windows.insert("keybinds_menu".to_string(), false);
+                }
+                if *self.open_windows.get("keybinds_menu").unwrap_or(&false){
+                    Window::new("Shortcuts").show(ctx, |ui|{
+                        for bind_name in self.keybinds.clone().keys(){
+                            ui.label(format!("{}: '{}'", bind_name, format_keybind(*self.keybinds.get(bind_name).unwrap())));
+                            
+                        }
+                        ui.set_min_width(256.0);
+                    });
+                }
+                ctx.request_repaint();        
+            });
 
         self.delta_time = Instant::now().checked_duration_since(self.last_instant).unwrap();
         self.last_instant = Instant::now();
@@ -515,17 +532,52 @@ fn get_color_icon(exe_path : String, size : [usize; 2]) -> ColorImage{ //Loads t
     color_icon
 }
 
-fn time_from_millis(millis : u64) -> String{
+fn time_from_millis(millis : u64) -> String{ //Converts a time in milliseconds to a human readable format of hours, minutes, and seconds
     let seconds = millis / 1000;
     let minutes = seconds / 60;
     let hours = minutes / 60;
     format!("{} hours, {} minutes, {} seconds", hours, minutes % 60, seconds % 60)
 }
 
-fn keybind_pressed(bind : String, ui : &egui::Ui, keybinds : &HashMap<String, (Key, Modifiers)>) -> bool{
+fn keybind_pressed(bind : String, ui : &egui::Ui, keybinds : &HashMap<String, (Option<Key>, Modifiers)>) -> bool{ //DISCLAIMER: dont use THIS unless you want to do something custom //Checks if a keybind is pressed via its name, checks include the key and any modifiers (ctrl, shift, alt), (also if they keybind is None, it will ONLY check for modifiers, allowing "ctrl" to be a valid keybind for example)
     if keybinds.get(&bind).is_none(){
         return false;
     }
-    let (key, modifiers) = keybinds.get(&bind).unwrap();
-    ui.input(|i| i.key_pressed(*key) && i.modifiers.matches_exact(*modifiers))
+    let (key, modifiers) = keybinds.get(&bind).unwrap().clone();
+    if key.is_some(){
+        ui.input(|i| i.key_pressed(key.unwrap()) && i.modifiers.matches_exact(modifiers))
+    } else {
+        ui.input(|i| i.modifiers.matches_exact(modifiers))
+    }
+}
+
+fn format_keybind(keybind : (Option<Key>, Modifiers)) -> String{
+    let key_name : String;
+    if keybind.0.is_some(){
+        key_name = format!("{:?}", keybind.0.unwrap());
+    } else {
+        key_name = "".to_string();
+    }
+    let mut modifier_name = "".to_string();
+    if keybind.1.ctrl {
+        if modifier_name != "".to_string(){
+            modifier_name.push_str(" + ");
+        }
+        modifier_name.push_str("Ctrl");
+    }
+    if keybind.1.alt {
+        if modifier_name != "".to_string(){
+            modifier_name.push_str(" + ");
+        }
+        modifier_name.push_str("Alt");
+    }
+    if keybind.1.shift {
+        if modifier_name != "".to_string(){
+            modifier_name.push_str(" + ");
+        }
+        modifier_name.push_str("Shift");
+    }
+
+
+    format!("{}{}", key_name, modifier_name)
 }
